@@ -50,6 +50,11 @@ go run main.go
 ```
 
 ```sh
+docker build -f ./docker/Dockerfile -t appdestest:v1 .
+docker run -d -it --rm -p 8080:8080 appdestest:v1
+```
+
+```sh
 curl --location --request POST 'localhost:8080/orders' \
 --header 'Content-Type: application/json' \
 --data-raw '{

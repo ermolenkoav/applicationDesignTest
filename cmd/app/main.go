@@ -16,17 +16,20 @@ import (
 	"syscall"
 
 	"applicationDesignTest/internal/logg"
-	"applicationDesignTest/internal/pers"
+	"applicationDesignTest/internal/repo"
 	"applicationDesignTest/internal/rest"
+	"applicationDesignTest/internal/service"
 )
 
 func main() {
 	ctx := context.Background()
 	logg.Info("up and running!")
 
-	repo := pers.NewPersistent()
+	repo := repo.NewPersistent()
 
-	api := rest.NewServe(repo)
+	service := service.NewBookingService(repo)
+
+	api := rest.NewServe(service)
 	go func() {
 		if err := api.ListenAndServe(); err != nil {
 			logg.Fatal("listen and serve: ", err)

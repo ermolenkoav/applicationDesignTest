@@ -8,4 +8,5 @@ type Order struct {
 	UserEmail string    `json:"email"`
 	From      time.Time `json:"from"`
 	To        time.Time `json:"to"`
+	Status    string    `json:"status"`
 }
