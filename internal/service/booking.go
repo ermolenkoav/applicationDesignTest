@@ -3,82 +3,83 @@ package service
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
-	"applicationDesignTest/internal/logg"
 	"applicationDesignTest/internal/model"
 	"applicationDesignTest/internal/tools"
 )
 
-// BookingService is a service for booking rooms.
-type PersistentRepo interface {
+type BookingRepo interface {
 	GetAvailability(context.Context) ([]model.RoomAvailability, error)
 	SaveOrder(context.Context, model.Order) error
 	SetAvailability(context.Context, []model.RoomAvailability) error
-	Lock() error
-	UnLock() error
 }
 
 type BookingService struct {
-	repo PersistentRepo
+	repo BookingRepo
+	mu   sync.Mutex
 }
 
-func NewBookingService(repo PersistentRepo) *BookingService {
-	return &BookingService{
-		repo: repo,
-	}
+func NewBookingService(repo BookingRepo) *BookingService {
+	return &BookingService{repo: repo}
 }
 
 func (s *BookingService) DoBookingOrder(ctx context.Context, order model.Order) error {
-	s.repo.Lock()
-	defer s.repo.UnLock()
-
-	persistentAvailability, err := s.repo.GetAvailability(ctx)
-	if err != nil {
-		return fmt.Errorf("check availability error: %w", err)
+	if err := order.Validate(); err != nil {
+		return fmt.Errorf("invalid order: %w", err)
 	}
 
-	err = doOrder(order, persistentAvailability)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	availability, err := s.repo.GetAvailability(ctx)
 	if err != nil {
-		return fmt.Errorf("check order error: %w", err)
+		return fmt.Errorf("get availability: %w", err)
 	}
 
-	err = s.repo.SaveOrder(ctx, order)
-	if err != nil {
-		return fmt.Errorf("save order error: %w", err)
+	if err = reserveDays(order, availability); err != nil {
+		return err
 	}
 
-	err = s.repo.SetAvailability(ctx, persistentAvailability)
-	if err != nil {
-		return fmt.Errorf("set avalabilyty error: %w", err)
+	if err = s.repo.SaveOrder(ctx, order); err != nil {
+		return fmt.Errorf("save order: %w", err)
+	}
+
+	if err = s.repo.SetAvailability(ctx, availability); err != nil {
+		return fmt.Errorf("set availability: %w", err)
 	}
 
 	return nil
 }
 
-func doOrder(newOrder model.Order, persistentAvailability []model.RoomAvailability) error {
-	daysToBook := tools.DaysBetween(newOrder.From, newOrder.To)
+// reserveDays decrements quota for each day of the booking.
+// Returns an error if any required day has no available quota.
+func reserveDays(order model.Order, availability []model.RoomAvailability) error {
+	daysToBook := tools.DaysBetween(order.From, order.To)
 
-	unavailableDays := make(map[time.Time]struct{})
-	for _, day := range daysToBook {
-		unavailableDays[day] = struct{}{}
+	unavailable := make(map[time.Time]struct{}, len(daysToBook))
+	for _, d := range daysToBook {
+		unavailable[d] = struct{}{}
 	}
 
-	for _, dayToBook := range daysToBook {
-		for i, availability := range persistentAvailability {
-			if !availability.Date.Equal(dayToBook) || availability.Quota < 1 {
+	for _, day := range daysToBook {
+		for i := range availability {
+			a := &availability[i]
+			if a.HotelID != order.HotelID || a.RoomID != order.RoomID {
 				continue
 			}
-			availability.Quota -= 1
-			persistentAvailability[i] = availability
-			delete(unavailableDays, dayToBook)
+			if !a.Date.Equal(day) || a.Quota < 1 {
+				continue
+			}
+			a.Quota--
+			delete(unavailable, day)
+			break
 		}
 	}
 
-	if len(unavailableDays) != 0 {
-		errMessage := fmt.Sprintf("Hotel room is not available for selected dates:\n%v\n%v", newOrder, unavailableDays)
-		logg.Errorf(errMessage)
-		return fmt.Errorf(errMessage)
+	if len(unavailable) != 0 {
+		return fmt.Errorf("room %s/%s not available for dates: %v", order.HotelID, order.RoomID, unavailable)
 	}
 
 	return nil

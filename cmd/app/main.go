@@ -14,25 +14,24 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
+	"applicationDesignTest/internal/api/rest"
 	"applicationDesignTest/internal/logg"
 	"applicationDesignTest/internal/repo"
-	"applicationDesignTest/internal/rest"
 	"applicationDesignTest/internal/service"
 )
 
 func main() {
-	ctx := context.Background()
 	logg.Info("up and running!")
 
-	repo := repo.NewPersistent()
+	r := repo.New()
+	svc := service.NewBookingService(r)
+	srv := rest.NewServer(svc)
 
-	service := service.NewBookingService(repo)
-
-	api := rest.NewServe(service)
 	go func() {
-		if err := api.ListenAndServe(); err != nil {
-			logg.Fatal("listen and serve: ", err)
+		if err := srv.ListenAndServe(); err != nil {
+			logg.Fatal("listen and serve: %v", err)
 		}
 	}()
 
@@ -40,8 +39,11 @@ func main() {
 	signal.Notify(done, syscall.SIGINT, syscall.SIGTERM)
 	<-done
 
-	if err := api.Shutdown(ctx); err != nil {
-		logg.Fatal("api shutdown: ", err)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(ctx); err != nil {
+		logg.Fatal("api shutdown: %v", err)
 	}
 
 	logg.Info("graceful shutdown!")

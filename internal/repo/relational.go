@@ -2,66 +2,43 @@ package repo
 
 import (
 	"context"
-	"errors"
-	"sync"
 
 	"applicationDesignTest/internal/model"
 	"applicationDesignTest/internal/tools"
 )
 
-type persistent struct {
+// Repo is a thread-unsafe in-memory implementation of the booking repository.
+// Callers are responsible for serializing concurrent access (e.g. via a service-level mutex).
+type Repo struct {
 	availability []model.RoomAvailability
 	orders       []model.Order
-	mt           *sync.RWMutex
-	isOpen       bool
 }
 
-func NewPersistent() *persistent {
-	av := []model.RoomAvailability{
-		{"reddison", "lux", tools.Date(2024, 1, 1), 1},
-		{"reddison", "lux", tools.Date(2024, 1, 2), 1},
-		{"reddison", "lux", tools.Date(2024, 1, 3), 1},
-		{"reddison", "lux", tools.Date(2024, 1, 4), 1},
-		{"reddison", "lux", tools.Date(2024, 1, 5), 0},
-	}
-	return &persistent{
-		availability: av,
-		orders:       make([]model.Order, 0),
-		mt:           &sync.RWMutex{},
+func New() *Repo {
+	return &Repo{
+		availability: []model.RoomAvailability{
+			{HotelID: "reddison", RoomID: "lux", Date: tools.Date(2024, 1, 1), Quota: 1},
+			{HotelID: "reddison", RoomID: "lux", Date: tools.Date(2024, 1, 2), Quota: 1},
+			{HotelID: "reddison", RoomID: "lux", Date: tools.Date(2024, 1, 3), Quota: 1},
+			{HotelID: "reddison", RoomID: "lux", Date: tools.Date(2024, 1, 4), Quota: 1},
+			{HotelID: "reddison", RoomID: "lux", Date: tools.Date(2024, 1, 5), Quota: 0},
+		},
+		orders: make([]model.Order, 0),
 	}
 }
 
-func (p *persistent) GetAvailability(_ context.Context) ([]model.RoomAvailability, error) {
-	if p.isOpen {
-		return p.availability, nil
-	}
-	return nil, errors.New("busy")
+func (r *Repo) GetAvailability(_ context.Context) ([]model.RoomAvailability, error) {
+	result := make([]model.RoomAvailability, len(r.availability))
+	copy(result, r.availability)
+	return result, nil
 }
 
-func (p *persistent) SaveOrder(_ context.Context, newOrder model.Order) error {
-	if p.isOpen {
-		p.orders = append(p.orders, newOrder)
-		return nil
-	}
-	return errors.New("busy")
-}
-
-func (p *persistent) SetAvailability(_ context.Context, data []model.RoomAvailability) error {
-	if p.isOpen {
-		p.availability = data
-		return nil
-	}
-	return errors.New("busy")
-}
-
-func (p *persistent) Lock() error {
-	p.mt.Lock()
-	p.isOpen = true
+func (r *Repo) SaveOrder(_ context.Context, order model.Order) error {
+	r.orders = append(r.orders, order)
 	return nil
 }
 
-func (p *persistent) UnLock() error {
-	p.mt.Unlock()
-	p.isOpen = false
+func (r *Repo) SetAvailability(_ context.Context, data []model.RoomAvailability) error {
+	r.availability = data
 	return nil
 }
