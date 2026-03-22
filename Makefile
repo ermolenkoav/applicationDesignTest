@@ -147,7 +147,6 @@ swag: install-swag
 	@swag fmt
 	@swag init -g ./internal/api/rest/handlers.go
 
-
 # Запуск всех видов тестов
 test:
 	@echo "Запуск тестов с race detection и coverage..."
